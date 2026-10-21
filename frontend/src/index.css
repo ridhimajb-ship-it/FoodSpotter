@@ -1,0 +1,45 @@
+@import "@fontsource-variable/playfair-display";
+@import "@fontsource/caveat/500.css";
+@import "@fontsource-variable/instrument-sans";
+@import "leaflet/dist/leaflet.css";
+@import "leaflet.markercluster/dist/MarkerCluster.css";
+@import "leaflet.markercluster/dist/MarkerCluster.Default.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html { color-scheme: light; }
+  body { @apply bg-paper font-sans text-ink antialiased; font-feature-settings: "ss01"; }
+  h1, h2, h3 { @apply font-display tracking-tight text-leaf-dark; }
+  :focus-visible { outline: 2px solid #1E4D3B; outline-offset: 2px; border-radius: 4px; }
+  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; scroll-behavior: auto !important; } }
+}
+
+@layer components {
+  .btn { @apply inline-flex items-center justify-center gap-2 rounded-lg px-3.5 py-2 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50; }
+  .btn-primary { @apply bg-leaf text-paper hover:bg-leaf-dark; }
+  .btn-accent { @apply bg-chili text-white hover:bg-chili-dark; }
+  .btn-ghost { @apply border border-line bg-white text-ink hover:border-leaf hover:text-leaf; }
+  .chip { @apply inline-flex items-center gap-1 rounded-full border border-line bg-white px-2.5 py-1 text-xs font-medium text-ink transition-colors; }
+  .chip[aria-pressed="true"] { @apply border-leaf bg-leaf text-paper; }
+  .panel { @apply rounded-2xl border border-line bg-white shadow-soft; }
+  .card-title { @apply font-display text-lg font-bold leading-tight text-ink; }
+  .field { @apply h-10 w-full rounded-xl border border-line bg-white px-3 py-2 text-sm shadow-soft placeholder:text-muted focus:border-leaf; }
+  .leader { flex: 1 1 auto; min-width: 1rem; border-bottom: 2px dotted #CDBFA6; transform: translateY(-4px); }
+}
+
+/* leaflet tweaks */
+.leaflet-container { font-family: inherit; background: #EFE6D2; }
+.fs-pin { background: none; border: 0; }
+.fs-pin span { display: block; width: 26px; height: 26px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); border: 2px solid #fff; box-shadow: 0 2px 6px rgba(0,0,0,.35); }
+.fs-pin span::after { content: ""; position: absolute; inset: 7px; border-radius: 50%; background: #fff; }
+.fs-label { background: #fff; border: 1px solid #E6DAC4; border-radius: 6px; color: #2A2420; font-weight: 600; font-size: 11px; padding: 1px 6px; box-shadow: none; }
+.fs-label::before { display: none; }
+.marker-cluster-small, .marker-cluster-medium, .marker-cluster-large { background-color: rgba(184, 68, 28, .25); }
+.marker-cluster-small div, .marker-cluster-medium div, .marker-cluster-large div { background-color: #B8441C; color: #fff; font-weight: 700; }
+
+/* name labels on markers appear only when zoomed in (see RestaurantMap) */
+.fs-label-perm { display: none; }
+.labels-on .fs-label-perm { display: block; }

@@ -1,0 +1,6 @@
+# Optional: BERT sentiment path. Install AFTER backend/requirements.txt:
+#   pip install -r backend/requirements-bert.txt
+# On Windows/Linux without a GPU, install the smaller CPU build of PyTorch first (recommended):
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
+transformers>=4.40
+torch>=2.2
