@@ -10,7 +10,6 @@ data/*.db
 data/*.db-*
 data/cache/
 data/*.csv
-docs/evaluation_results.json
 docs/annotation/
 *.log
 .DS_Store

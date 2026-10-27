@@ -1,0 +1,143 @@
+{
+  "generated_at": "2026-10-27T12:48:43.665141+00:00",
+  "dataset": {
+    "verified_reviews": 2444,
+    "restaurants": 2140,
+    "note": "Historical dataset snapshot; results do not describe current restaurant quality."
+  },
+  "sentiment_proxy": {
+    "status": "proxy only \u2013 NOT ground truth",
+    "n": 2444,
+    "label_distribution": {
+      "positive": 1680,
+      "negative": 226,
+      "neutral": 538
+    },
+    "definition": "weak label from the reviewer's own star rating: >=4 positive, 3 neutral, <=2 negative",
+    "vader_baseline": {
+      "accuracy": 0.7385,
+      "per_class": {
+        "positive": {
+          "precision": 0.7547,
+          "recall": 0.9798,
+          "f1": 0.8526,
+          "support": 1680
+        },
+        "neutral": {
+          "precision": 0.5135,
+          "recall": 0.0353,
+          "f1": 0.0661,
+          "support": 538
+        },
+        "negative": {
+          "precision": 0.6195,
+          "recall": 0.6195,
+          "f1": 0.6195,
+          "support": 226
+        }
+      },
+      "macro_f1": 0.5127,
+      "confusion_matrix": {
+        "labels": [
+          "positive",
+          "neutral",
+          "negative"
+        ],
+        "rows_true_cols_pred": [
+          [
+            1646,
+            9,
+            25
+          ],
+          [
+            458,
+            19,
+            61
+          ],
+          [
+            77,
+            9,
+            140
+          ]
+        ]
+      },
+      "n": 2444
+    },
+    "vader_plus_domain_lexicon": {
+      "accuracy": 0.7394,
+      "per_class": {
+        "positive": {
+          "precision": 0.7566,
+          "recall": 0.9786,
+          "f1": 0.8534,
+          "support": 1680
+        },
+        "neutral": {
+          "precision": 0.5455,
+          "recall": 0.0335,
+          "f1": 0.063,
+          "support": 538
+        },
+        "negative": {
+          "precision": 0.6092,
+          "recall": 0.6416,
+          "f1": 0.625,
+          "support": 226
+        }
+      },
+      "macro_f1": 0.5138,
+      "confusion_matrix": {
+        "labels": [
+          "positive",
+          "neutral",
+          "negative"
+        ],
+        "rows_true_cols_pred": [
+          [
+            1644,
+            8,
+            28
+          ],
+          [
+            455,
+            18,
+            65
+          ],
+          [
+            74,
+            7,
+            145
+          ]
+        ]
+      },
+      "n": 2444
+    },
+    "bert_vs_vader": {
+      "status": "not evaluated",
+      "reason": "no stored BERT predictions (run python scripts/run_bert.py first)"
+    }
+  },
+  "sentiment_manual": {
+    "status": "not evaluated",
+    "reason": "run export-templates and annotate"
+  },
+  "aspects_manual": {
+    "status": "not evaluated",
+    "reason": "run export-templates and annotate"
+  },
+  "ranking_vs_rating_baseline": {
+    "status": "not evaluated",
+    "reason": "run export-templates and annotate"
+  },
+  "restaurant_matching": {
+    "status": "not evaluated",
+    "reason": "run export-templates and verify the sample",
+    "review_counts_by_match_status": {
+      "ambiguous": 606,
+      "matched": 2444,
+      "needs_review": 8700
+    },
+    "matched_reviews": 2444,
+    "note": "needs_review / ambiguous reviews are excluded from all analytics and rankings"
+  }
+}
