@@ -15,5 +15,12 @@ Name+area without address evidence → `needs_review`; several equally good bran
 Unresolved reviews have `restaurant_id = NULL` and are excluded from every metric. Resolve them with `scripts/import_reviews.py --verify decisions.csv`.
 Same-name restaurants >30 m apart remain separate branches.
 
+## Duplicate reviews
+Every row of the Kaggle file has a different URL only because of a per-row `?context=` tracking parameter: the 51,717 rows
+cover 12,453 Zomato pages, and rows of the same page repeat its reviews. Rows are kept (some carry extra reviews), but each
+review is stored once per restaurant (verified matches) or once per page URL without the query (unresolved reviews), keyed on
+normalised text + star rating. Databases imported before this rule are repaired with
+`python scripts/import_reviews.py --dedupe-only`; every import also runs this repair first.
+
 ## "Newly discovered"
 First successful run per source = baseline (nothing is "new"). Later runs mark unseen identifiers as newly discovered **by FoodSpotter**; opening dates are never inferred. Restaurants missing from a later successful query are flagged `needs_recheck`, never deleted.

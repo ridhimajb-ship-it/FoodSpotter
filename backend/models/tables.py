@@ -132,7 +132,7 @@ class Review(Base):
     restaurant_id: Mapped[Optional[int]] = mapped_column(ForeignKey("restaurants.id", ondelete="SET NULL"), index=True)
     candidate_restaurant_id: Mapped[Optional[int]] = mapped_column(ForeignKey("restaurants.id", ondelete="SET NULL"))
     match_status: Mapped[str] = mapped_column(String(20), index=True)
-    # matched | verified_manual | needs_review | ambiguous | rejected
+    # matched | verified_manual | needs_review | ambiguous | rejected | duplicate (text already held by the restaurant)
     match_confidence: Mapped[Optional[float]] = mapped_column(Float)
     match_evidence: Mapped[Optional[dict]] = mapped_column(JSON)
 

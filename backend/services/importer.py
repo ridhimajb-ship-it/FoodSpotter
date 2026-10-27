@@ -8,6 +8,11 @@ Dataset facts we rely on (and verify at runtime by inspecting the columns):
 
 Reviews are attributed to a restaurant only after `matching.match_source_record` finds name + area + address
 corroboration. Everything else is flagged (`needs_review`/`ambiguous`) and excluded from analytics.
+
+Duplicate reviews: every row's URL carries a per-row `?context=` tracking parameter, so one Zomato page appears
+under many URLs and its reviews are repeated across those rows (sometimes with a few extra reviews in one row).
+Rows are therefore kept, but each review is de-duplicated within its restaurant (verified matches) or within its
+canonical Zomato page (unresolved reviews); see `review_identity`.
 """
 from __future__ import annotations
 
@@ -19,13 +24,14 @@ from pathlib import Path
 from typing import Any, Optional
 
 import pandas as pd
-from sqlalchemy import select
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
 from backend.database.base import utcnow
 from backend.models import ImportHistory, Restaurant, Review
 from backend.nlp.preprocess import clean_text
-from backend.services.matching import Candidate, match_source_record, normalize_name
+from backend.services.constants import VALID_REVIEW_STATUSES
+from backend.services.matching import Candidate, match_source_record
 from backend.services.neighborhoods import neighborhood_from_free_text
 
 SOURCE = "zomato_kaggle"
@@ -81,9 +87,66 @@ def parse_reviews_list(raw: Any) -> tuple[list[tuple[Optional[float], str]], int
     return out, bad
 
 
-def content_hash(key: str, text: str, rating: Optional[float]) -> str:
-    base = f"{normalize_name(key)}|{re.sub(r'[^a-z0-9]+', ' ', text.lower()).strip()}|{rating}"
+HASH_VERSION = "v2"  # v1 (full listing URL in the hash) stored one copy of a review per listing row
+
+
+def canonical_listing_key(key: Optional[str]) -> str:
+    """One key per Zomato page: drop the per-row `?context=` query (and any fragment) from listing URLs."""
+    k = str(key or "").strip()
+    if k.lower().startswith(("http://", "https://")):
+        k = re.sub(r"[?#].*$", "", k).rstrip("/")
+    return k
+
+
+def review_identity(restaurant_id: Optional[int], listing_key: Optional[str]) -> str:
+    """The scope inside which identical review text is one review: the verified restaurant when there is one,
+    otherwise the canonical Zomato page."""
+    if restaurant_id is not None:
+        return f"restaurant:{restaurant_id}"
+    return f"listing:{canonical_listing_key(listing_key)}"
+
+
+def content_hash(identity: str, text: str, rating: Optional[float]) -> str:
+    base = f"{HASH_VERSION}|{identity}|{re.sub(r'[^a-z0-9]+', ' ', text.lower()).strip()}|{rating}"
     return hashlib.sha256(base.encode()).hexdigest()
+
+
+# Which copy survives when stored duplicates are merged: verified rows first, then the oldest.
+_STATUS_PRIORITY = {"verified_manual": 0, "matched": 1, "needs_review": 2, "ambiguous": 2, "rejected": 3, "duplicate": 4}
+
+
+def dedupe_existing_reviews(db: Session) -> dict:
+    """Bring stored reviews in line with the current duplicate rule. Idempotent; safe to run on any database.
+
+    Recomputes every review's hash, keeps one row per (restaurant or page, text, rating) and deletes the other copies
+    (their sentiment, aspect and BERT rows are removed by the foreign-key cascade). Survivors get the new hash and the
+    canonical listing key. Rankings must be recomputed afterwards (`refresh_analytics`).
+    """
+    rows = db.execute(select(Review.id, Review.restaurant_id, Review.match_status, Review.source_restaurant_key,
+                             Review.text, Review.rating, Review.content_hash)).all()
+    best: dict[str, tuple] = {}
+    for r in rows:
+        rid = r.restaurant_id if r.match_status in VALID_REVIEW_STATUSES else None
+        h = content_hash(review_identity(rid, r.source_restaurant_key), r.text, r.rating)
+        rank = (_STATUS_PRIORITY.get(r.match_status, 5), r.id)
+        if h not in best or rank < best[h][0]:
+            best[h] = (rank, r)
+    keep = {r.id: h for h, (_, r) in best.items()}
+    drop = [r.id for r in rows if r.id not in keep]
+    for i in range(0, len(drop), 500):
+        db.execute(delete(Review).where(Review.id.in_(drop[i:i + 500])))
+    changes = []
+    for r in rows:
+        h = keep.get(r.id)
+        if h is None:
+            continue
+        key = canonical_listing_key(r.source_restaurant_key) if r.source_restaurant_key else r.source_restaurant_key
+        if h != r.content_hash or key != r.source_restaurant_key:
+            changes.append({"id": r.id, "content_hash": h, "source_restaurant_key": key})
+    if changes:
+        db.execute(update(Review), changes)
+    db.commit()
+    return {"reviews_checked": len(rows), "duplicate_reviews_removed": len(drop), "reviews_rekeyed": len(changes)}
 
 
 # ---------------------------------------------------------------- main entry
@@ -133,9 +196,12 @@ def import_zomato_csv(
         cands_by_hood.setdefault(r.neighborhood or "", []).append(Candidate(r.id, r.name, r.address, r.neighborhood))
     report["osm_restaurants_available_for_matching"] = sum(len(v) for v in cands_by_hood.values())
 
+    # Older databases stored one copy of a review per listing row; merge those first so the hashes below line up.
+    report["existing_reviews_deduplicated"] = dedupe_existing_reviews(db)
     existing_hashes = set(db.scalars(select(Review.content_hash)))
     counts: Counter = Counter()
     unmatched_samples: list[dict] = []
+    unmatched_seen: set[str] = set()
     matched_restaurants: set[int] = set()
     stop = False
 
@@ -143,7 +209,7 @@ def import_zomato_csv(
         name = str(row.get("name", "")).strip()
         address = str(row.get("address", "")).strip()
         hood = neighborhood_from_free_text(str(row.get("location", "")))
-        key = str(row["_key"])
+        key = canonical_listing_key(str(row["_key"]))
 
         if not name:
             counts["rows_without_name"] += 1
@@ -157,7 +223,9 @@ def import_zomato_csv(
         counts[f"match_{match.status}"] += 1
         if match.status == "no_candidate":
             # Not stored (no OSM record to place them on the map), but counted so the report shows the real loss.
-            counts["reviews_unmatched_no_osm_record"] += len(parse_reviews_list(row.get("reviews_list", ""))[0])
+            for rating, text in parse_reviews_list(row.get("reviews_list", ""))[0]:
+                counts["review_entries_unmatched_no_osm_record"] += 1
+                unmatched_seen.add(content_hash(review_identity(None, key), text, rating))
             if len(unmatched_samples) < 50:
                 unmatched_samples.append({"name": name, "address": address, "area": hood, "reason": match.evidence.get("reason")})
             continue  # not stored: no OSM counterpart => cannot be placed on the map
@@ -176,7 +244,8 @@ def import_zomato_csv(
             if max_reviews is not None and counts["reviews_imported_matched"] >= max_reviews and match.status == "matched":
                 stop = True
                 break
-            h = content_hash(key, text, rating)
+            owner = match.restaurant_id if match.status == "matched" else None
+            h = content_hash(review_identity(owner, key), text, rating)
             if h in existing_hashes:
                 counts["duplicate_reviews_skipped"] += 1
                 continue
@@ -195,6 +264,7 @@ def import_zomato_csv(
 
     db.commit()
     report.update(dict(counts))
+    report["reviews_unmatched_no_osm_record"] = len(unmatched_seen)  # distinct reviews, not listing-row copies
     report["restaurants_with_verified_reviews"] = len(matched_restaurants)
     report["unmatched_restaurant_samples"] = unmatched_samples
     report["valid_reviews_imported"] = counts["reviews_imported_matched"]
@@ -225,12 +295,12 @@ def apply_verified_matches(db: Session, csv_path: str | Path) -> dict:
     for col in ("source_restaurant_key", "restaurant_id", "confirm"):
         if col not in df.columns:
             raise DatasetError(f"verification file needs a '{col}' column")
-    confirmed = rejected = reviews_updated = 0
+    confirmed = rejected = reviews_updated = duplicates = 0
     for row in df.itertuples(index=False):
         decision = str(row.confirm).strip().lower()
         if decision not in ("yes", "no"):
             continue
-        q = select(Review).where(Review.source_restaurant_key == row.source_restaurant_key,
+        q = select(Review).where(Review.source_restaurant_key == canonical_listing_key(row.source_restaurant_key),
                                  Review.match_status.in_(("needs_review", "ambiguous")))
         revs = list(db.scalars(q))
         if decision == "yes":
@@ -238,7 +308,15 @@ def apply_verified_matches(db: Session, csv_path: str | Path) -> dict:
             if db.get(Restaurant, rid) is None:
                 continue
             for rv in revs:
+                # The restaurant may already hold this exact review from another listing: keep one copy only.
+                h = content_hash(review_identity(rid, rv.source_restaurant_key), rv.text, rv.rating)
+                if db.scalar(select(Review.id).where(Review.content_hash == h, Review.id != rv.id)) is not None:
+                    rv.match_status, rv.restaurant_id = "duplicate", None
+                    duplicates += 1
+                    continue
+                rv.content_hash = h
                 rv.restaurant_id, rv.match_status, rv.match_confidence = rid, "verified_manual", 1.0
+                db.flush()
             confirmed += 1
         else:
             for rv in revs:
@@ -246,4 +324,5 @@ def apply_verified_matches(db: Session, csv_path: str | Path) -> dict:
             rejected += 1
         reviews_updated += len(revs)
     db.commit()
-    return {"confirmed_restaurants": confirmed, "rejected_restaurants": rejected, "reviews_updated": reviews_updated}
+    return {"confirmed_restaurants": confirmed, "rejected_restaurants": rejected, "reviews_updated": reviews_updated,
+            "duplicates_not_promoted": duplicates}
