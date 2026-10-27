@@ -4,6 +4,10 @@
     {
       "source": "/api/:path*",
       "destination": "https://foodspotter-y0sh.onrender.com/api/:path*"
+    },
+    {
+      "source": "/((?!api/).*)",
+      "destination": "/index.html"
     }
   ]
 }
